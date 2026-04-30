@@ -1,4 +1,9 @@
 import os
+import sys
+
+# Add api/ directory to path so sibling modules (database, config, etc.) are importable on Vercel
+sys.path.insert(0, os.path.dirname(__file__))
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
