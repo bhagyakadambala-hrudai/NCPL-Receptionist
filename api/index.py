@@ -1,23 +1,40 @@
 import os
 import sys
 
-# Add api/ directory to path so sibling modules (database, config, etc.) are importable on Vercel
-sys.path.insert(0, os.path.dirname(__file__))
+# Add api/ directory to path so sibling modules are importable on Vercel
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import database as db
 from call_handler import router as call_router
 
-PUBLIC_DIR = os.path.join(os.path.dirname(__file__), "..", "public")
+# Resolve public/ directory — try multiple locations for Vercel compatibility
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATES = [
+    os.path.join(_HERE, "..", "public"),   # local: api/../public
+    os.path.join(os.getcwd(), "public"),   # Vercel: /var/task/public
+    "/var/task/public",                    # Vercel absolute fallback
+]
+PUBLIC_DIR = next((d for d in _CANDIDATES if os.path.isdir(d)), _CANDIDATES[0])
+
+
+def _serve_file(filename: str, media_type: str):
+    path = os.path.join(PUBLIC_DIR, filename)
+    if os.path.isfile(path):
+        return FileResponse(path, media_type=media_type)
+    return HTMLResponse(f"<h3>File not found: {path}</h3><p>PUBLIC_DIR={PUBLIC_DIR}</p>", status_code=404)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
+    try:
+        db.init_db()
+    except Exception as e:
+        print(f"[startup] DB init warning: {e}")
     yield
 
 
@@ -39,17 +56,17 @@ app.include_router(call_router, prefix="/voice", tags=["voice"])
 
 @app.get("/", include_in_schema=False)
 async def dashboard():
-    return FileResponse(os.path.join(PUBLIC_DIR, "index.html"))
+    return _serve_file("index.html", "text/html")
 
 
 @app.get("/dashboard.js", include_in_schema=False)
 async def serve_js():
-    return FileResponse(os.path.join(PUBLIC_DIR, "dashboard.js"))
+    return _serve_file("dashboard.js", "application/javascript")
 
 
 @app.get("/style.css", include_in_schema=False)
 async def serve_css():
-    return FileResponse(os.path.join(PUBLIC_DIR, "style.css"))
+    return _serve_file("style.css", "text/css")
 
 
 # ---------------------------------------------------------------------------
@@ -58,22 +75,45 @@ async def serve_css():
 
 @app.get("/api/stats")
 async def api_stats():
-    return JSONResponse(db.get_stats())
+    try:
+        return JSONResponse(db.get_stats())
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/calls")
 async def api_calls(limit: int = 50):
-    return JSONResponse(db.get_recent_calls(limit))
+    try:
+        return JSONResponse(db.get_recent_calls(limit))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/calls/{call_sid}")
 async def api_call_detail(call_sid: str):
-    call = db.get_call(call_sid)
-    if not call:
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return JSONResponse(call)
+    try:
+        call = db.get_call(call_sid)
+        if not call:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        return JSONResponse(call)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/leads")
 async def api_leads(limit: int = 100):
-    return JSONResponse(db.get_all_leads(limit))
+    try:
+        return JSONResponse(db.get_all_leads(limit))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/health")
+async def health():
+    return JSONResponse({
+        "status": "ok",
+        "public_dir": PUBLIC_DIR,
+        "public_exists": os.path.isdir(PUBLIC_DIR),
+        "files": os.listdir(PUBLIC_DIR) if os.path.isdir(PUBLIC_DIR) else [],
+        "cwd": os.getcwd(),
+    })
