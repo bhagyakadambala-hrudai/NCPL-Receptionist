@@ -12,14 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import database as db
 from call_handler import router as call_router
 
-# Resolve public/ directory — try multiple locations for Vercel compatibility
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_CANDIDATES = [
-    os.path.join(_HERE, "..", "public"),   # local: api/../public
-    os.path.join(os.getcwd(), "public"),   # Vercel: /var/task/public
-    "/var/task/public",                    # Vercel absolute fallback
-]
-PUBLIC_DIR = next((d for d in _CANDIDATES if os.path.isdir(d)), _CANDIDATES[0])
+# public/ lives inside api/ so it's always co-located with the function on Vercel
+PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 
 
 def _serve_file(filename: str, media_type: str):
