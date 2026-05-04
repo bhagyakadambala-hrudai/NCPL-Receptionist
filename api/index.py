@@ -6,21 +6,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 import database as db
 from call_handler import router as call_router
-
-# public/ lives inside api/ so it's always co-located with the function on Vercel
-PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
-
-
-def _serve_file(filename: str, media_type: str):
-    path = os.path.join(PUBLIC_DIR, filename)
-    if os.path.isfile(path):
-        return FileResponse(path, media_type=media_type)
-    return HTMLResponse(f"<h3>File not found: {path}</h3><p>PUBLIC_DIR={PUBLIC_DIR}</p>", status_code=404)
+from frontend import get_dashboard_html, DASHBOARD_CSS, DASHBOARD_JS
 
 
 @asynccontextmanager
@@ -45,22 +36,22 @@ app.include_router(call_router, prefix="/voice", tags=["voice"])
 
 
 # ---------------------------------------------------------------------------
-# Frontend
+# Frontend — served from inline Python strings, no file system needed
 # ---------------------------------------------------------------------------
 
 @app.get("/", include_in_schema=False)
 async def dashboard():
-    return _serve_file("index.html", "text/html")
-
-
-@app.get("/dashboard.js", include_in_schema=False)
-async def serve_js():
-    return _serve_file("dashboard.js", "application/javascript")
+    return HTMLResponse(get_dashboard_html())
 
 
 @app.get("/style.css", include_in_schema=False)
 async def serve_css():
-    return _serve_file("style.css", "text/css")
+    return Response(content=DASHBOARD_CSS, media_type="text/css")
+
+
+@app.get("/dashboard.js", include_in_schema=False)
+async def serve_js():
+    return Response(content=DASHBOARD_JS, media_type="application/javascript")
 
 
 # ---------------------------------------------------------------------------
@@ -104,10 +95,4 @@ async def api_leads(limit: int = 100):
 
 @app.get("/health")
 async def health():
-    return JSONResponse({
-        "status": "ok",
-        "public_dir": PUBLIC_DIR,
-        "public_exists": os.path.isdir(PUBLIC_DIR),
-        "files": os.listdir(PUBLIC_DIR) if os.path.isdir(PUBLIC_DIR) else [],
-        "cwd": os.getcwd(),
-    })
+    return JSONResponse({"status": "ok", "version": "2.0", "frontend": "inline"})
